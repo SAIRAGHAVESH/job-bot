@@ -204,6 +204,36 @@ def send_file(filepath):
     except Exception as e:
         print(f"  File send error: {e}")
 
+def is_entry_mid_level(title, description=""):
+    """Filter for 0-5 years experience roles"""
+    title_lower = title.lower()
+    desc_lower  = description.lower()
+
+    # Exclude senior/staff/principal/lead/director/vp/head roles
+    exclude = [
+        "staff ", "principal", "director", "vp ", "vice president",
+        "head of", "distinguished", "fellow", "architect",
+        " iv ", " v ", "level 5", "level 6", "l5", "l6",
+        "10+ years", "8+ years", "7+ years", "6+ years",
+    ]
+    for word in exclude:
+        if word in title_lower or word in desc_lower:
+            return False
+
+    return True
+
+def get_exp_level(title):
+    """Return experience level label"""
+    title_lower = title.lower()
+    if any(x in title_lower for x in ["senior", "sr.", "sr "]):
+        return "3-5 yrs"
+    elif any(x in title_lower for x in ["junior", "jr.", "jr ", "associate", "entry"]):
+        return "0-2 yrs"
+    elif any(x in title_lower for x in ["mid", "ii ", "level 2", "l2"]):
+        return "2-4 yrs"
+    else:
+        return "0-5 yrs"
+
 def load_seen():
     if os.path.exists(SEEN_FILE):
         with open(SEEN_FILE) as f:
@@ -258,6 +288,7 @@ def fetch_job_boards(seen):
                 results_wanted=25,
                 hours_old=24,
                 is_remote=True,
+                job_type="fulltime",
                 country_indeed="USA",
             )
             if not df.empty:
@@ -596,7 +627,7 @@ def save_to_excel(jobs):
     ws.row_dimensions[1].height = 32
 
     # Headers
-    hdrs = ["Job Title","Company","Location","Source","Salary","Date Posted","Apply Link","Apply By (Deadline)","Applied Status","Notes"]
+    hdrs = ["Job Title","Company","Location","Source","Salary","Exp Level","Date Posted","Apply Link","Apply By (Deadline)","Applied Status","Notes"]
     for col, h in enumerate(hdrs, 1):
         c = ws.cell(row=2, column=col, value=h)
         c.font      = Font(name="Arial", bold=True, color="FFFFFF", size=11)
@@ -609,8 +640,9 @@ def save_to_excel(jobs):
     for i, job in enumerate(jobs):
         r, fill = i + 3, alt_fill if i % 2 == 0 else wht_fill
         src_color = src_colors.get(job["source"], "555555")
+        exp_level = get_exp_level(job["title"])
         row_vals  = [job["title"], job["company"], job["location"],
-                     job["source"], job["salary"], job["posted"], job["url"], "", "Not Applied", ""]
+                     job["source"], job["salary"], exp_level, job["posted"], job["url"], "", "Not Applied", ""]
         for col, val in enumerate(row_vals, 1):
             c           = ws.cell(row=r, column=col, value=val)
             c.fill      = fill
@@ -618,9 +650,12 @@ def save_to_excel(jobs):
             c.alignment = Alignment(vertical="center")
             if col == 4:   # Source — colored
                 c.font = Font(name="Arial", size=10, bold=True, color=src_color)
-            elif col == 7: # URL
+            elif col == 6: # Exp Level
+                c.font = Font(name="Arial", size=10, bold=True, color="375623")
+                c.alignment = Alignment(horizontal="center", vertical="center")
+            elif col == 8: # URL
                 c.font = Font(name="Arial", size=10, color="0070C0", underline="single")
-            elif col == 9: # Applied Status
+            elif col == 10: # Applied Status
                 c.font = Font(name="Arial", size=10, bold=True, color="7F7F7F")
                 c.alignment = Alignment(horizontal="center", vertical="center")
             else:
@@ -629,7 +664,7 @@ def save_to_excel(jobs):
 
     # Footer
     fr = len(jobs) + 4
-    ws.merge_cells(f"A{fr}:J{fr}")
+    ws.merge_cells(f"A{fr}:K{fr}")
     ws[f"A{fr}"] = (f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  "
                     f"Sources: JobBoards + Adzuna + Jooble + RemoteOK + WWR + "
                     f"USAJobs + Greenhouse + Lever + Ashby + SmartRecruiters + Workday  |  "
@@ -638,7 +673,7 @@ def save_to_excel(jobs):
     ws[f"A{fr}"].fill      = hdr_fill
     ws[f"A{fr}"].alignment = Alignment(horizontal="center")
 
-    for col, w in zip(["A","B","C","D","E","F","G","H","I","J"], [38,24,22,16,14,14,52,20,18,20]):
+    for col, w in zip(["A","B","C","D","E","F","G","H","I","J","K"], [38,24,22,16,14,12,14,52,20,18,20]):
         ws.column_dimensions[col].width = w
 
     # Dropdown for Applied Status (col I = col 9)
@@ -653,10 +688,10 @@ def save_to_excel(jobs):
     dv.promptTitle = "Applied Status"
     ws.add_data_validation(dv)
     for row_num in range(3, len(jobs) + 3):
-        dv.add(ws.cell(row=row_num, column=9))
+        dv.add(ws.cell(row=row_num, column=10))
 
     ws.freeze_panes = "A3"
-    ws.auto_filter.ref = f"A2:J{len(jobs)+2}"
+    ws.auto_filter.ref = f"A2:K{len(jobs)+2}"
 
     wb.save(filepath)
     print(f"Saved: {filepath}")

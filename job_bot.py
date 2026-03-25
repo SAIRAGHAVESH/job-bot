@@ -7,35 +7,41 @@ Sources:
   2. Free APIs     — Adzuna, Jooble, RemoteOK, USAJobs, WeWorkRemotely
   3. ATS Platforms — Greenhouse, Lever, Ashby, SmartRecruiters, Workday
                      (covers 500+ top US companies in one go)
+
 Output:
   - New Excel file every day: Daily_Jobs/Jobs_YYYY-MM-DD.xlsx
   - Telegram alert with top openings + apply links
+
 Setup:
   pip install python-jobspy openpyxl requests schedule pandas
-→ Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID below
-→ Optional: Set ADZUNA_APP_ID, ADZUNA_APP_KEY (free at developer.adzuna.com)
-→ Optional: Set JOOBLE_API_KEY (free at jooble.org/api)
-→ Run: python job_bot.py
+  → Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID below
+  → Optional: Set ADZUNA_APP_ID, ADZUNA_APP_KEY (free at developer.adzuna.com)
+  → Optional: Set JOOBLE_API_KEY (free at jooble.org/api)
+  → Run: python job_bot.py
 ====================================================================
 """
+
 import os, json, time, hashlib, requests, schedule
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
 try:
     from jobspy import scrape_jobs
     JOBSPY_OK = True
 except ImportError:
     JOBSPY_OK = False
     print("Run: pip install python-jobspy")
+
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = "8621053380:AAHGJhcJPARAnHfekKvHA7fQ2SE2CbpKnuo"
 TELEGRAM_CHAT_ID   = "612269695"
-ADZUNA_APP_ID      = ""  # free @ developer.adzuna.com
+ADZUNA_APP_ID      = ""   # free @ developer.adzuna.com
 ADZUNA_APP_KEY     = ""
 JOOBLE_API_KEY     = ""   # free @ jooble.org/api
 SAVE_FOLDER        = "Daily_Jobs"
 SEEN_FILE          = "seen_jobs.json"
+
 JOB_TITLES = [
     "Software Engineer", "Senior Software Engineer", "Staff Software Engineer",
     "DevOps Engineer", "Senior DevOps Engineer", "Platform Engineer",
@@ -46,6 +52,7 @@ JOB_TITLES = [
     "Kubernetes Engineer", "Cloud Security Engineer", "DataOps Engineer",
     "Software Development Engineer", "Application Engineer",
 ]
+
 # ── 500+ COMPANIES via ATS ────────────────────────────────────────────────────
 # Greenhouse: just the company slug → api.greenhouse.io/v1/boards/{slug}/jobs
 GREENHOUSE_COMPANIES = [
@@ -87,6 +94,7 @@ GREENHOUSE_COMPANIES = [
     # IT Services
     "epam","thoughtworks","slalom","publicissapient",
 ]
+
 # Lever: jobs.lever.co/{slug}?lever-source=jobspage
 LEVER_COMPANIES = [
     # Big Tech & SaaS
@@ -116,6 +124,7 @@ LEVER_COMPANIES = [
     "duolingo","coursera","udemy","pluralsight","skillshare",
     "masterclass","brilliant","khan-academy","codecademy",
 ]
+
 # Ashby: jobs.ashbyhq.com/{slug}
 ASHBY_COMPANIES = [
     "openai","perplexity","mistral","together","anyscale",
@@ -126,6 +135,7 @@ ASHBY_COMPANIES = [
     "vercel","netlify","cloudflare-workers","deno",
     "cursor","codeium","tabnine","sourcegraph",
 ]
+
 # SmartRecruiters public API
 SMARTRECRUITERS_COMPANIES = [
     "Visa","Mastercard","PayPal","Intuit","Adobe","Salesforce",
@@ -138,6 +148,7 @@ SMARTRECRUITERS_COMPANIES = [
     "UnitedHealth","CVS","Cigna","Humana","Anthem",
     "Boeing","Lockheed","Raytheon","Northrop","GeneralDynamics",
 ]
+
 # Workday tenant URLs (pattern: {tenant}.wd5.myworkdayjobs.com)
 WORKDAY_TENANTS = [
     ("Apple",           "apple"),
@@ -172,24 +183,30 @@ WORKDAY_TENANTS = [
     ("Wipro",           "wipro"),
     ("HCL",             "hcl"),
     ("Capgemini",       "capgemini"),
-]
     ("EPAM",            "epam"),
+]
+
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+
 def load_seen():
     if os.path.exists(SEEN_FILE):
         with open(SEEN_FILE) as f:
             return set(json.load(f))
     return set()
+
 def save_seen(seen):
     with open(SEEN_FILE, "w") as f:
         json.dump(list(seen), f)
+
 def job_id(title, company):
     return hashlib.md5(f"{title}{company}".lower().encode()).hexdigest()
+
 def make_job(title, company, location, url, source, salary="—"):
     return {"title": title, "company": company, "location": location,
             "url": url, "source": source, "salary": salary,
             "posted": datetime.now().strftime("%Y-%m-%d")}
+
 def send_telegram(msg):
     try:
         requests.post(
@@ -201,6 +218,7 @@ def send_telegram(msg):
         time.sleep(0.4)
     except Exception as e:
         print(f"  Telegram error: {e}")
+
 def is_relevant(title):
     keywords = [
         "engineer","sre","devops","platform","cloud","infrastructure",
@@ -208,6 +226,7 @@ def is_relevant(title):
         "reliability","kubernetes","architect","systems"
     ]
     return any(k in title.lower() for k in keywords)
+
 # ── SOURCE 1: JOB BOARDS (JobSpy) ────────────────────────────────────────────
 def fetch_job_boards(seen):
     if not JOBSPY_OK:
@@ -231,8 +250,10 @@ def fetch_job_boards(seen):
         except Exception as e:
             print(f"    Error: {e}")
         time.sleep(2)
+
     if not frames:
         return []
+
     for _, row in pd.concat(frames, ignore_index=True).iterrows():
         jid = job_id(str(row.get("title","")), str(row.get("company","")))
         if jid not in seen:
@@ -245,6 +266,7 @@ def fetch_job_boards(seen):
                 str(row.get("min_amount","") or "—"),
             ))
     return jobs
+
 # ── SOURCE 2: ADZUNA API ──────────────────────────────────────────────────────
 def fetch_adzuna(seen):
     if not ADZUNA_APP_ID:
@@ -275,6 +297,7 @@ def fetch_adzuna(seen):
         time.sleep(1)
     print(f"  [Adzuna] {len(jobs)} jobs")
     return jobs
+
 # ── SOURCE 3: JOOBLE API ──────────────────────────────────────────────────────
 def fetch_jooble(seen):
     if not JOOBLE_API_KEY:
@@ -303,6 +326,7 @@ def fetch_jooble(seen):
         time.sleep(1)
     print(f"  [Jooble] {len(jobs)} jobs")
     return jobs
+
 # ── SOURCE 4: REMOTEOK (FREE PUBLIC API) ─────────────────────────────────────
 def fetch_remoteok(seen):
     jobs = []
@@ -325,6 +349,7 @@ def fetch_remoteok(seen):
         print(f"  [RemoteOK] Error: {e}")
     print(f"  [RemoteOK] {len(jobs)} jobs")
     return jobs
+
 # ── SOURCE 5: WE WORK REMOTELY (RSS) ─────────────────────────────────────────
 def fetch_weworkremotely(seen):
     import xml.etree.ElementTree as ET
@@ -352,6 +377,7 @@ def fetch_weworkremotely(seen):
         time.sleep(1)
     print(f"  [WeWorkRemotely] {len(jobs)} jobs")
     return jobs
+
 # ── SOURCE 6: USAJOBS (FREE GOVT API) ────────────────────────────────────────
 def fetch_usajobs(seen):
     jobs = []
@@ -380,6 +406,7 @@ def fetch_usajobs(seen):
         print(f"  [USAJobs] Error: {e}")
     print(f"  [USAJobs] {len(jobs)} jobs")
     return jobs
+
 # ── SOURCE 7: GREENHOUSE ATS ──────────────────────────────────────────────────
 def fetch_greenhouse(seen):
     jobs = []
@@ -406,6 +433,7 @@ def fetch_greenhouse(seen):
         time.sleep(0.3)
     print(f"  [Greenhouse] {len(jobs)} jobs from {len(GREENHOUSE_COMPANIES)} companies")
     return jobs
+
 # ── SOURCE 8: LEVER ATS ───────────────────────────────────────────────────────
 def fetch_lever(seen):
     jobs = []
@@ -432,6 +460,7 @@ def fetch_lever(seen):
         time.sleep(0.3)
     print(f"  [Lever] {len(jobs)} jobs from {len(LEVER_COMPANIES)} companies")
     return jobs
+
 # ── SOURCE 9: ASHBY ATS ───────────────────────────────────────────────────────
 def fetch_ashby(seen):
     jobs = []
@@ -459,6 +488,7 @@ def fetch_ashby(seen):
         time.sleep(0.3)
     print(f"  [Ashby] {len(jobs)} jobs from {len(ASHBY_COMPANIES)} companies")
     return jobs
+
 # ── SOURCE 10: SMARTRECRUITERS ────────────────────────────────────────────────
 def fetch_smartrecruiters(seen):
     jobs = []
@@ -484,6 +514,7 @@ def fetch_smartrecruiters(seen):
         time.sleep(1)
     print(f"  [SmartRecruiters] {len(jobs)} jobs")
     return jobs
+
 # ── SOURCE 11: WORKDAY ────────────────────────────────────────────────────────
 def fetch_workday(seen):
     jobs = []
@@ -513,18 +544,21 @@ def fetch_workday(seen):
             time.sleep(0.5)
     print(f"  [Workday] {len(jobs)} jobs from {len(WORKDAY_TENANTS)} companies")
     return jobs
+
 # ── SAVE TO EXCEL ─────────────────────────────────────────────────────────────
 def save_to_excel(jobs):
     today    = datetime.now().strftime("%Y-%m-%d")
     filename = f"Jobs_{today}.xlsx"
     os.makedirs(SAVE_FOLDER, exist_ok=True)
     filepath = os.path.join(SAVE_FOLDER, filename)
+
     thin     = Side(style="thin", color="CCCCCC")
     border   = Border(left=thin, right=thin, top=thin, bottom=thin)
     hdr_fill = PatternFill("solid", start_color="1F4E79")
     sub_fill = PatternFill("solid", start_color="2E75B6")
     alt_fill = PatternFill("solid", start_color="EBF3FB")
     wht_fill = PatternFill("solid", start_color="FFFFFF")
+
     # Source color map
     src_colors = {
         "LINKEDIN":"4267B2","INDEED":"003A9B","GLASSDOOR":"0CAA41",
@@ -533,9 +567,11 @@ def save_to_excel(jobs):
         "USAJOBS":"002868","GREENHOUSE":"24B47E","LEVER":"4A90E2",
         "ASHBY":"7B61FF","SMARTRECRUIT":"E8222E","WORKDAY":"F36E21",
     }
+
     wb = Workbook()
     ws = wb.active
     ws.title = today
+
     # Title
     ws.merge_cells("A1:H1")
     ws["A1"] = f"Job Openings — {today}   ({len(jobs)} roles from 10+ sources)"
@@ -543,6 +579,7 @@ def save_to_excel(jobs):
     ws["A1"].fill      = hdr_fill
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 32
+
     # Headers
     hdrs = ["Job Title","Company","Location","Source","Salary","Date Posted","Apply Link","Apply By (Deadline)","Applied Status","Notes"]
     for col, h in enumerate(hdrs, 1):
@@ -552,6 +589,7 @@ def save_to_excel(jobs):
         c.alignment = Alignment(horizontal="center", vertical="center")
         c.border    = border
     ws.row_dimensions[2].height = 22
+
     # Data
     for i, job in enumerate(jobs):
         r, fill = i + 3, alt_fill if i % 2 == 0 else wht_fill
@@ -573,6 +611,7 @@ def save_to_excel(jobs):
             else:
                 c.font = Font(name="Arial", size=10)
         ws.row_dimensions[r].height = 18
+
     # Footer
     fr = len(jobs) + 4
     ws.merge_cells(f"A{fr}:J{fr}")
@@ -583,8 +622,10 @@ def save_to_excel(jobs):
     ws[f"A{fr}"].font      = Font(name="Arial", bold=True, size=9, color="FFFFFF")
     ws[f"A{fr}"].fill      = hdr_fill
     ws[f"A{fr}"].alignment = Alignment(horizontal="center")
+
     for col, w in zip(["A","B","C","D","E","F","G","H","I","J"], [38,24,22,16,14,14,52,20,18,20]):
         ws.column_dimensions[col].width = w
+
     # Dropdown for Applied Status (col I = col 9)
     from openpyxl.worksheet.datavalidation import DataValidation
     dv = DataValidation(
@@ -598,29 +639,35 @@ def save_to_excel(jobs):
     ws.add_data_validation(dv)
     for row_num in range(3, len(jobs) + 3):
         dv.add(ws.cell(row=row_num, column=9))
+
     ws.freeze_panes = "A3"
     ws.auto_filter.ref = f"A2:J{len(jobs)+2}"
+
     wb.save(filepath)
     print(f"Saved: {filepath}")
     return filepath
+
 # ── TELEGRAM SUMMARY ──────────────────────────────────────────────────────────
 def send_summary(jobs):
     today = datetime.now().strftime("%Y-%m-%d")
+
     # Count by source
     from collections import Counter
     by_src = Counter(j["source"] for j in jobs)
     src_summary = "  ".join(f"{k}: {v}" for k,v in by_src.most_common())
+
     if not jobs:
-        send_telegram(f"
+        send_telegram(f"📋 <b>Job Scan — {today}</b>\n\nNo new openings found today.")
         return
- <b>Job Scan — {today}</b>\n\nNo new openings found today.")
+
     send_telegram(
-        f" <b>Job Scan — {today}</b>\n"
-        f" <b>{len(jobs)} new openings</b> found!\n"
-        f" File: <b>Jobs_{today}.xlsx</b>\n\n"
+        f"📋 <b>Job Scan — {today}</b>\n"
+        f"✅ <b>{len(jobs)} new openings</b> found!\n"
+        f"📂 File: <b>Jobs_{today}.xlsx</b>\n\n"
         f"<b>By Source:</b>\n{src_summary}\n"
         f"{'─'*30}"
     )
+
     # Sort by source priority (most reliable/important first)
     source_priority = {
         "GREENHOUSE": 1, "LEVER": 2, "ASHBY": 3, "WORKDAY": 4,
@@ -630,66 +677,75 @@ def send_summary(jobs):
         "WWR": 14, "USAJOBS": 15,
     }
     sorted_jobs = sorted(jobs, key=lambda j: source_priority.get(j["source"], 99))
+
     # Top 30 in order of importance
     for job in sorted_jobs[:30]:
         send_telegram(
-            f"
- <b>{job['title']}</b>\n"
-            f"
-            f"
-            f"
+            f"💼 <b>{job['title']}</b>\n"
+            f"🏢 {job['company']}  |  📍 {job['location']}\n"
+            f"💰 {job['salary']}  |  [{job['source']}]\n"
+            f"🔗 <a href='{job['url']}'>Apply Now</a>"
         )
- {job['company']}  |   {job['location']}\n"
- {job['salary']}  |  [{job['source']}]\n"
- <a href='{job['url']}'>Apply Now</a>"
+
     if len(jobs) > 30:
-        send_telegram(f" <b>{len(jobs)-30} more</b> in <b>Jobs_{today}.xlsx</b>")
+        send_telegram(f"➕ <b>{len(jobs)-30} more</b> in <b>Jobs_{today}.xlsx</b>")
+
 # ── MAIN RUN ──────────────────────────────────────────────────────────────────
 def run():
     print(f"\n{'='*60}")
     print(f"Scan: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     seen = load_seen()
     all_jobs = []
+
     print("\n[1/11] Job Boards (LinkedIn/Indeed/Glassdoor/ZipRecruiter/Google)...")
     all_jobs += fetch_job_boards(seen)
+
     print("\n[2/11] Adzuna API...")
     all_jobs += fetch_adzuna(seen)
+
     print("\n[3/11] Jooble API...")
     all_jobs += fetch_jooble(seen)
+
     print("\n[4/11] RemoteOK...")
     all_jobs += fetch_remoteok(seen)
+
     print("\n[5/11] We Work Remotely...")
     all_jobs += fetch_weworkremotely(seen)
+
     print("\n[6/11] USAJobs...")
     all_jobs += fetch_usajobs(seen)
+
     print("\n[7/11] Greenhouse ATS (300+ companies)...")
     all_jobs += fetch_greenhouse(seen)
+
     print("\n[8/11] Lever ATS (200+ companies)...")
     all_jobs += fetch_lever(seen)
+
     print("\n[9/11] Ashby ATS (AI/startup companies)...")
     all_jobs += fetch_ashby(seen)
+
     print("\n[10/11] SmartRecruiters...")
     all_jobs += fetch_smartrecruiters(seen)
+
     print("\n[11/11] Workday (Apple/Google/Microsoft/Meta + 30 more)...")
     all_jobs += fetch_workday(seen)
+
     save_seen(seen)
+
     print(f"\nTotal new jobs found: {len(all_jobs)}")
     save_to_excel(all_jobs)
     send_summary(all_jobs)
+
 # ── SCHEDULE ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     send_telegram(
-        " <b>Full Job Bot is live!</b>\n"
-        "
- Runs daily at 8:00 AM\n"
-        "
- Sources: LinkedIn · Indeed · Glassdoor · ZipRecruiter · Google Jobs\n"
+        "🤖 <b>Full Job Bot is live!</b>\n"
+        "⏰ Runs daily at 8:00 AM\n"
+        "🔍 Sources: LinkedIn · Indeed · Glassdoor · ZipRecruiter · Google Jobs\n"
         "         Adzuna · Jooble · RemoteOK · WeWorkRemotely · USAJobs\n"
         "         Greenhouse · Lever · Ashby · SmartRecruiters · Workday\n"
-        "
- Covers 500+ top US company career pages via ATS\n"
-        "
- New Excel file daily: <b>Jobs_YYYY-MM-DD.xlsx</b>"
+        "🏢 Covers 500+ top US company career pages via ATS\n"
+        "📂 New Excel file daily: <b>Jobs_YYYY-MM-DD.xlsx</b>"
     )
     run()
     schedule.every().day.at("08:00").do(run)

@@ -748,7 +748,7 @@ if __name__ == "__main__":
         "📂 New Excel file daily: <b>Jobs_YYYY-MM-DD.xlsx</b>"
     )
     run()
-    schedule.every().day.at("08:00").do(run)
+    schedule.every().day.at("08:30").do(run)
     while True:
         schedule.run_pending()
         time.sleep(60)

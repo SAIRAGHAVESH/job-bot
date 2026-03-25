@@ -189,6 +189,21 @@ WORKDAY_TENANTS = [
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 
+def send_file(filepath):
+    """Send Excel file directly to Telegram chat"""
+    try:
+        with open(filepath, "rb") as f:
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument",
+                data={"chat_id": TELEGRAM_CHAT_ID,
+                      "caption": f"📂 Daily Jobs Sheet — {datetime.now().strftime('%Y-%m-%d')}"},
+                files={"document": f},
+                timeout=60
+            )
+        print(f"File sent to Telegram: {filepath}")
+    except Exception as e:
+        print(f"  File send error: {e}")
+
 def load_seen():
     if os.path.exists(SEEN_FILE):
         with open(SEEN_FILE) as f:
@@ -733,8 +748,9 @@ def run():
     save_seen(seen)
 
     print(f"\nTotal new jobs found: {len(all_jobs)}")
-    save_to_excel(all_jobs)
+    filepath = save_to_excel(all_jobs)
     send_summary(all_jobs)
+    send_file(filepath)
 
 # ── SCHEDULE ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

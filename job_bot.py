@@ -36,9 +36,10 @@ except ImportError:
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = "8621053380:AAHGJhcJPARAnHfekKvHA7fQ2SE2CbpKnuo"
 TELEGRAM_CHAT_ID   = "612269695"
-ADZUNA_APP_ID      = ""   # free @ developer.adzuna.com
-ADZUNA_APP_KEY     = ""
-JOOBLE_API_KEY     = ""   # free @ jooble.org/api
+ADZUNA_APP_ID      = os.getenv("ADZUNA_APP_ID",       "")
+SERPAPI_KEY        = "0dc3cd2139fce65ad7f82ccc12105acc89ff2f09a42518c46d73cfe57ca7b81b"
+ADZUNA_APP_KEY     = os.getenv("ADZUNA_APP_KEY",      "")
+JOOBLE_API_KEY     = os.getenv("JOOBLE_API_KEY",      "")   # free @ jooble.org/api
 SAVE_FOLDER        = "Daily_Jobs"
 SEEN_FILE          = "seen_jobs.json"
 
@@ -93,6 +94,15 @@ GREENHOUSE_COMPANIES = [
     "zoox","waymo","aurora","argo-ai",
     # IT Services
     "epam","thoughtworks","slalom","publicissapient",
+    # Added from referrals + screenshots
+    "adobe","intuit","veeva","paloaltonetworks","broadcom",
+    "techmahindra","virtusa","servicenow","workday","hubspot",
+    "okta","mongodb","twilio","zendesk","freshworks",
+    "figma","notion","asana","linear","canva",
+    "samsara","axon","rivian","flexport","project44",
+    "wiz","lacework","orca","snyk","sonatype",
+    "grafana","influxdata","honeycomb","lightstep","newrelic",
+    "dbtlabs","fivetran","airbyte","alation","collibra",
 ]
 
 # Lever: jobs.lever.co/{slug}?lever-source=jobspage
@@ -123,6 +133,10 @@ LEVER_COMPANIES = [
     # Edtech
     "duolingo","coursera","udemy","pluralsight","skillshare",
     "masterclass","brilliant","khan-academy","codecademy",
+    # Added missing referral companies
+    "palo-alto-networks","veeva-systems","intuit","adobe",
+    "broadcom","tech-mahindra","virtusa","vmware",
+    "qualcomm","amd","intel","cisco","juniper",
 ]
 
 # Ashby: jobs.ashbyhq.com/{slug}
@@ -204,6 +218,140 @@ def send_file(filepath):
     except Exception as e:
         print(f"  File send error: {e}")
 
+# ── SAI SIVANI'S RESUME PROFILE ──────────────────────────────────────────────
+RESUME_SKILLS = {
+    # Cloud (weight 3 — strongest area)
+    "aws": 3, "ec2": 3, "eks": 3, "s3": 3, "lambda": 3, "iam": 3,
+    "vpc": 3, "cloudwatch": 3, "rds": 3, "route53": 3, "cloudformation": 3,
+    "codepipeline": 3, "auto scaling": 3,
+    "azure": 3, "aks": 3, "key vault": 3, "azure devops": 3,
+    # Containers & Orchestration (weight 3)
+    "kubernetes": 3, "k8s": 3, "docker": 3, "helm": 3, "argocd": 3,
+    "gitops": 3, "eks": 3, "aks": 3,
+    # CI/CD (weight 3)
+    "jenkins": 3, "github actions": 3, "gitlab ci": 3, "gitlab": 3,
+    "ci/cd": 3, "cicd": 3, "pipeline": 2,
+    # IaC (weight 3)
+    "terraform": 3, "ansible": 3, "infrastructure as code": 3, "iac": 3,
+    # Observability (weight 2)
+    "prometheus": 2, "grafana": 2, "datadog": 2, "elk": 2, "splunk": 2,
+    "cloudwatch": 2, "opentelemetry": 2, "monitoring": 2, "observability": 2,
+    # Security / DevSecOps (weight 2)
+    "trivy": 2, "snyk": 2, "sonarqube": 2, "devsecops": 2,
+    "rbac": 2, "secrets management": 2, "vault": 2, "security": 2,
+    # Languages (weight 2)
+    "python": 2, "bash": 2, "boto3": 2, "powershell": 2,
+    # Practices (weight 1)
+    "agile": 1, "scrum": 1, "on-call": 1, "incident management": 1,
+    "cost optimization": 1, "sre": 2, "site reliability": 2,
+    # Certs (weight 1)
+    "aws certified": 1, "solutions architect": 1,
+}
+
+DEVOPS_CLOUD_ROLES = [
+    "devops", "sre", "site reliability", "platform engineer",
+    "cloud engineer", "cloud architect", "infrastructure engineer",
+    "kubernetes engineer", "devsecops", "mlops", "dataops",
+    "reliability engineer", "build engineer", "release engineer",
+]
+
+def is_devops_cloud_role(title):
+    t = title.lower()
+    return any(r in t for r in DEVOPS_CLOUD_ROLES)
+
+def score_job(title, company, description=""):
+    """Score job 1-10 based on match with Sai's resume. Only for DevOps/Cloud roles."""
+    if not is_devops_cloud_role(title):
+        return ""  # blank for non DevOps/Cloud roles
+
+    text = f"{title} {company} {description}".lower()
+    total_score = 0
+    max_possible = 0
+    matched = []
+
+    for skill, weight in RESUME_SKILLS.items():
+        max_possible += weight
+        if skill in text:
+            total_score += weight
+            matched.append(skill)
+
+    if max_possible == 0:
+        return "5/10"
+
+    raw = (total_score / max_possible) * 10
+    score = max(1, min(10, round(raw)))
+    return f"{score}/10"
+
+# ── COMPANY TIERS ────────────────────────────────────────────────────────────
+TIER_1_COMPANIES = {
+    # Big Tech
+    "google","meta","apple","microsoft","amazon","nvidia","netflix",
+    # Top DevOps/Cloud
+    "datadog","hashicorp","cloudflare","crowdstrike","snowflake","databricks",
+    "elastic","splunk","zscaler","netskope","okta","mongodb","twilio",
+    "pagerduty","grafana","circleci","docker","gitlab","github",
+    # Top Fintech
+    "stripe","coinbase","robinhood","brex","plaid","chime","affirm",
+    # Top AI
+    "anthropic","openai","scale","cohere",
+    # Top SaaS
+    "salesforce","hubspot","servicenow","workday","atlassian","zendesk",
+    "notion","figma","canva","asana","linear",
+}
+
+TIER_2_COMPANIES = {
+    "airbnb","lyft","doordash","instacart","pinterest","reddit","discord",
+    "dropbox","box","zoom","slack","intercom","freshworks","zendesk",
+    "fastly","fly","render","supabase","planetscale","cockroachdb",
+    "rippling","gusto","carta","ramp","navan","divvy",
+    "samsara","axon","rivian","flexport","project44",
+    "cohesity","wasabi","cloudapp","dnsimple","fairwinds",
+}
+
+ROLE_PRIORITY = {
+    "devops": 1, "sre": 1, "site reliability": 1, "platform engineer": 1,
+    "cloud engineer": 2, "cloud architect": 2, "infrastructure": 2,
+    "kubernetes": 2, "devsecops": 2, "mlops": 2,
+    "software engineer": 3, "backend engineer": 3, "full stack": 3,
+    "security engineer": 4, "data engineer": 4,
+    "systems engineer": 5, "application engineer": 5,
+}
+
+def get_company_tier(company):
+    co = company.lower().strip()
+    if any(t in co for t in TIER_1_COMPANIES):
+        return 1
+    elif any(t in co for t in TIER_2_COMPANIES):
+        return 2
+    return 3
+
+def get_role_priority(title):
+    t = title.lower()
+    for role, priority in ROLE_PRIORITY.items():
+        if role in t:
+            return priority
+    return 6
+
+def get_sort_score(job):
+    """Lower score = higher priority"""
+    tier      = get_company_tier(job["company"])
+    role_pri  = get_role_priority(job["title"])
+    has_sal   = 0 if job["salary"] != "—" else 1
+    # Match score — higher is better so invert
+    ms        = score_job(job["title"], job["company"])
+    match_inv = 10 - int(ms.split("/")[0]) if ms and "/" in str(ms) else 5
+    return (role_pri, match_inv, tier, has_sal)
+
+def is_usa_or_remote(location):
+    """Only keep USA and remote jobs"""
+    loc = location.lower()
+    exclude = ["canada","uk","germany","india","australia","brazil",
+               "france","netherlands","spain","italy","poland","portugal",
+               "ireland","singapore","mexico","colombia","argentina"]
+    if any(c in loc for c in exclude):
+        return False
+    return True
+
 def is_entry_mid_level(title, description=""):
     """Filter for 0-5 years experience roles"""
     title_lower = title.lower()
@@ -251,6 +399,16 @@ def make_job(title, company, location, url, source, salary="—"):
     return {"title": title, "company": company, "location": location,
             "url": url, "source": source, "salary": salary,
             "posted": datetime.now().strftime("%Y-%m-%d")}
+
+def is_good_job(title, location):
+    """Check if job matches our criteria"""
+    if not is_relevant(title):
+        return False
+    if not is_usa_or_remote(location):
+        return False
+    if not is_entry_mid_level(title):
+        return False
+    return True
 
 def send_telegram(msg):
     try:
@@ -620,14 +778,14 @@ def save_to_excel(jobs):
 
     # Title
     ws.merge_cells("A1:H1")
-    ws["A1"] = f"Job Openings — {today}   ({len(jobs)} roles from 10+ sources)"
+    ws["A1"] = f"Job Openings — {today}   ({len(jobs)} roles | Sorted: DevOps/Cloud → SWE → Top Companies)"
     ws["A1"].font      = Font(name="Arial", bold=True, size=14, color="FFFFFF")
     ws["A1"].fill      = hdr_fill
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 32
 
     # Headers
-    hdrs = ["Job Title","Company","Location","Source","Salary","Exp Level","Date Posted","Apply Link","Apply By (Deadline)","Applied Status","Notes"]
+    hdrs = ["Job Title","Company","Tier","H-1B","Location","Source","Salary","Exp Level","Match Score","Date Posted","Apply Link","Apply By (Deadline)","Applied Status","Notes"]
     for col, h in enumerate(hdrs, 1):
         c = ws.cell(row=2, column=col, value=h)
         c.font      = Font(name="Arial", bold=True, color="FFFFFF", size=11)
@@ -640,22 +798,40 @@ def save_to_excel(jobs):
     for i, job in enumerate(jobs):
         r, fill = i + 3, alt_fill if i % 2 == 0 else wht_fill
         src_color = src_colors.get(job["source"], "555555")
-        exp_level = get_exp_level(job["title"])
-        row_vals  = [job["title"], job["company"], job["location"],
-                     job["source"], job["salary"], exp_level, job["posted"], job["url"], "", "Not Applied", ""]
+        exp_level   = get_exp_level(job["title"])
+        tier        = ["⭐⭐⭐ Top Tier","⭐⭐ Mid Tier","⭐ Other"][get_company_tier(job["company"])-1]
+        match_score = score_job(job["title"], job["company"])
+        h1b_cos     = {'hubspot', 'cisco', 'airbnb', 'splunk', 'microsoft', 'carta', 'tcs', 'rivian', 'databricks', 'wipro', 'broadcom', 'sofi', 'intuit', 'zscaler', 'samsara', 'spacex', 'hcl', 'netskope', 'epam', 'chewy', 'toast', 'tesla', 'openai', 'qualcomm', 'servicenow', 'guardant', 'nvidia', 'oracle', 'ripple', 'zoom', 'clearwater', 'mongodb', 'slalom', 'amazon', 'capgemini', 'coinbase', 'scale', 'plaid', 'lyft', 'wayfair', 'axon', 'cloudflare', 'cohesity', 'adobe', 'zipline', 'chime', 'affirm', 'google', 'dataminr', 'stripe', 'tempus', 'flexport', 'cognizant', 'servicetitan', 'palo alto', 'datadog', 'verkada', 'ginkgo', 'elastic', 'rippling', 'anthropic', 'brex', 'okta', 'workday', 'infosys', 'palantir', 'meta', 'ltimindtree', 'robinhood', 'snowflake', 'tiktok', 'doordash', 'twilio', 'instacart', 'marqeta', 'hashicorp', 'crowdstrike', 'salesforce', 'apple'}
+        h1b         = "✅ Yes" if any(h in job["company"].lower() for h in h1b_cos) else "—"
+        row_vals    = [job["title"], job["company"], tier, h1b, job["location"],
+                       job["source"], job["salary"], exp_level, match_score,
+                       job["posted"], job["url"], "", "Not Applied", ""]
         for col, val in enumerate(row_vals, 1):
             c           = ws.cell(row=r, column=col, value=val)
             c.fill      = fill
             c.border    = border
             c.alignment = Alignment(vertical="center")
-            if col == 4:   # Source — colored
+            if col == 3:   # Tier
+                tier_colors = {"⭐⭐⭐ Top Tier":"7B2C2C","⭐⭐ Mid Tier":"375623","⭐ Other":"1F4E79"}
+                c.font = Font(name="Arial", size=10, bold=True, color=tier_colors.get(val,"000000"))
+                c.alignment = Alignment(horizontal="center", vertical="center")
+            elif col == 4: # H-1B
+                c.font = Font(name="Arial", size=10, bold=True,
+                              color="375623" if val == "✅ Yes" else "AAAAAA")
+                c.alignment = Alignment(horizontal="center", vertical="center")
+            elif col == 6:   # Source — colored
                 c.font = Font(name="Arial", size=10, bold=True, color=src_color)
-            elif col == 6: # Exp Level
+            elif col == 8: # Exp Level
                 c.font = Font(name="Arial", size=10, bold=True, color="375623")
                 c.alignment = Alignment(horizontal="center", vertical="center")
-            elif col == 8: # URL
+            elif col == 9: # Match Score
+                score_num = int(val.split("/")[0]) if val and "/" in str(val) else 0
+                score_color = "375623" if score_num >= 7 else ("FF6600" if score_num >= 4 else "7F7F7F")
+                c.font = Font(name="Arial", size=11, bold=True, color=score_color)
+                c.alignment = Alignment(horizontal="center", vertical="center")
+            elif col == 11: # URL
                 c.font = Font(name="Arial", size=10, color="0070C0", underline="single")
-            elif col == 10: # Applied Status
+            elif col == 13: # Applied Status
                 c.font = Font(name="Arial", size=10, bold=True, color="7F7F7F")
                 c.alignment = Alignment(horizontal="center", vertical="center")
             else:
@@ -664,7 +840,7 @@ def save_to_excel(jobs):
 
     # Footer
     fr = len(jobs) + 4
-    ws.merge_cells(f"A{fr}:K{fr}")
+    ws.merge_cells(f"A{fr}:N{fr}")
     ws[f"A{fr}"] = (f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  "
                     f"Sources: JobBoards + Adzuna + Jooble + RemoteOK + WWR + "
                     f"USAJobs + Greenhouse + Lever + Ashby + SmartRecruiters + Workday  |  "
@@ -673,7 +849,7 @@ def save_to_excel(jobs):
     ws[f"A{fr}"].fill      = hdr_fill
     ws[f"A{fr}"].alignment = Alignment(horizontal="center")
 
-    for col, w in zip(["A","B","C","D","E","F","G","H","I","J","K"], [38,24,22,16,14,12,14,52,20,18,20]):
+    for col, w in zip(["A","B","C","D","E","F","G","H","I","J","K","L","M","N"], [36,22,14,10,20,14,14,12,12,14,50,20,18,20]):
         ws.column_dimensions[col].width = w
 
     # Dropdown for Applied Status (col I = col 9)
@@ -688,10 +864,10 @@ def save_to_excel(jobs):
     dv.promptTitle = "Applied Status"
     ws.add_data_validation(dv)
     for row_num in range(3, len(jobs) + 3):
-        dv.add(ws.cell(row=row_num, column=10))
+        dv.add(ws.cell(row=row_num, column=13))
 
     ws.freeze_panes = "A3"
-    ws.auto_filter.ref = f"A2:K{len(jobs)+2}"
+    ws.auto_filter.ref = f"A2:N{len(jobs)+2}"
 
     wb.save(filepath)
     print(f"Saved: {filepath}")
@@ -722,9 +898,9 @@ def send_summary(jobs):
     source_priority = {
         "GREENHOUSE": 1, "LEVER": 2, "ASHBY": 3, "WORKDAY": 4,
         "SMARTRECRUIT": 5, "LINKEDIN": 6, "INDEED": 7,
-        "GLASSDOOR": 8, "ZIP_RECRUITER": 9, "GOOGLE": 10,
-        "ADZUNA": 11, "JOOBLE": 12, "REMOTEOK": 13,
-        "WWR": 14, "USAJOBS": 15,
+        "SERPAPI": 8, "GLASSDOOR": 9, "ZIP_RECRUITER": 10, "GOOGLE": 11,
+        "ADZUNA": 12, "JOOBLE": 13, "REMOTEOK": 14,
+        "WWR": 15, "USAJOBS": 16,
     }
     sorted_jobs = sorted(jobs, key=lambda j: source_priority.get(j["source"], 99))
 
@@ -739,6 +915,101 @@ def send_summary(jobs):
 
     if len(jobs) > 30:
         send_telegram(f"➕ <b>{len(jobs)-30} more</b> in <b>Jobs_{today}.xlsx</b>")
+
+# ── SOURCE 12: SERPAPI (ZipRecruiter + Glassdoor + Monster + Google Jobs + Workday companies) ──
+def fetch_serpapi(seen):
+    if not SERPAPI_KEY:
+        print("  [SerpAPI] Skipping — no API key")
+        return []
+    jobs = []
+
+    # General job title searches
+    search_queries = [
+        "DevOps Engineer remote USA",
+        "Cloud Engineer remote USA",
+        "Site Reliability Engineer remote USA",
+        "Software Engineer remote USA",
+        "Platform Engineer remote USA",
+        "Backend Engineer remote USA",
+        "Infrastructure Engineer remote USA",
+        "Security Engineer remote USA",
+        "MLOps Engineer remote USA",
+        "Kubernetes Engineer remote USA",
+    ]
+
+    # Specific company searches for blocked Workday + referral companies
+    company_searches = [
+        "Apple DevOps Engineer remote",
+        "Apple Cloud Engineer remote",
+        "Google DevOps Engineer remote",
+        "Google Site Reliability Engineer remote",
+        "Microsoft DevOps Engineer remote",
+        "Microsoft Cloud Engineer remote",
+        "Meta Software Engineer DevOps remote",
+        "Adobe DevOps Engineer remote",
+        "Intuit DevOps Engineer remote",
+        "Palo Alto Networks DevOps Engineer remote",
+        "Broadcom DevOps Engineer remote",
+        "Veeva Systems DevOps Engineer remote",
+        "Tech Mahindra DevOps Engineer USA",
+        "Virtusa DevOps Engineer USA",
+        "Nvidia DevOps Engineer remote",
+        "Salesforce DevOps Engineer remote",
+        "Cisco DevOps Engineer remote",
+        "Oracle Cloud Engineer remote",
+        "VMware DevOps Engineer remote",
+        "Qualcomm DevOps Engineer remote",
+    ]
+
+    all_queries = search_queries + company_searches
+
+    for query in all_queries:
+        try:
+            r = requests.get(
+                "https://serpapi.com/search",
+                params={
+                    "engine":   "google_jobs",
+                    "q":        query,
+                    "location": "United States",
+                    "hl":       "en",
+                    "gl":       "us",
+                    "chips":    "date_posted:today",
+                    "api_key":  SERPAPI_KEY,
+                },
+                timeout=15
+            )
+            data = r.json()
+            for job in data.get("jobs_results", []):
+                t   = job.get("title", "")
+                co  = job.get("company_name", "")
+                loc = job.get("location", "Remote, USA")
+
+                # Get best apply link
+                url = ""
+                for opt in job.get("apply_options", []):
+                    url = opt.get("link", "")
+                    break
+                if not url:
+                    url = f"https://www.google.com/search?q={requests.utils.quote(t+' '+co+' jobs')}"
+
+                # Get salary if available
+                salary = "—"
+                for h in job.get("job_highlights", []):
+                    for item in h.get("items", []):
+                        if "$" in item or "salary" in item.lower():
+                            salary = item[:50]
+                            break
+
+                jid = job_id(t, co)
+                if jid not in seen and is_good_job(t, loc):
+                    seen.add(jid)
+                    jobs.append(make_job(t, co, loc, url, "SERPAPI", salary))
+        except Exception as e:
+            print(f"  [SerpAPI] Error on '{query}': {e}")
+        time.sleep(1)
+
+    print(f"  [SerpAPI] {len(jobs)} jobs (ZipRecruiter + Glassdoor + Monster + Google + Workday companies)")
+    return jobs
 
 # ── MAIN RUN ──────────────────────────────────────────────────────────────────
 def run():
@@ -780,7 +1051,23 @@ def run():
     print("\n[11/11] Workday (Apple/Google/Microsoft/Meta + 30 more)...")
     all_jobs += fetch_workday(seen)
 
+    print("\n[12/12] SerpAPI (ZipRecruiter + Glassdoor + Monster + Google Jobs)...")
+    all_jobs += fetch_serpapi(seen)
+
     save_seen(seen)
+
+    # Sort by: Role Priority → Company Tier → Has Salary
+    all_jobs = sorted(all_jobs, key=get_sort_score)
+
+    # Deduplicate by title+company
+    seen_titles = set()
+    unique_jobs = []
+    for j in all_jobs:
+        key = f"{j['title'].lower()}{j['company'].lower()}"
+        if key not in seen_titles:
+            seen_titles.add(key)
+            unique_jobs.append(j)
+    all_jobs = unique_jobs
 
     print(f"\nTotal new jobs found: {len(all_jobs)}")
     filepath = save_to_excel(all_jobs)
@@ -792,14 +1079,14 @@ if __name__ == "__main__":
     send_telegram(
         "🤖 <b>Full Job Bot is live!</b>\n"
         "⏰ Runs daily at 8:00 AM\n"
-        "🔍 Sources: LinkedIn · Indeed · Glassdoor · ZipRecruiter · Google Jobs\n"
+        "🔍 Sources: LinkedIn · Indeed · ZipRecruiter · Glassdoor · Monster\n"
         "         Adzuna · Jooble · RemoteOK · WeWorkRemotely · USAJobs\n"
         "         Greenhouse · Lever · Ashby · SmartRecruiters · Workday\n"
         "🏢 Covers 500+ top US company career pages via ATS\n"
         "📂 New Excel file daily: <b>Jobs_YYYY-MM-DD.xlsx</b>"
     )
     run()
-    schedule.every().day.at("08:30").do(run)
+    schedule.every().day.at("08:00").do(run)
     while True:
         schedule.run_pending()
         time.sleep(60)

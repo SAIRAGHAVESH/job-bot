@@ -923,46 +923,13 @@ def fetch_serpapi(seen):
         return []
     jobs = []
 
-    # General job title searches
-    search_queries = [
-        "DevOps Engineer remote USA",
-        "Cloud Engineer remote USA",
-        "Site Reliability Engineer remote USA",
-        "Software Engineer remote USA",
-        "Platform Engineer remote USA",
-        "Backend Engineer remote USA",
-        "Infrastructure Engineer remote USA",
-        "Security Engineer remote USA",
-        "MLOps Engineer remote USA",
-        "Kubernetes Engineer remote USA",
-    ]
+   
 
-    # Specific company searches for blocked Workday + referral companies
-    company_searches = [
-        "Apple DevOps Engineer remote",
-        "Apple Cloud Engineer remote",
-        "Google DevOps Engineer remote",
-        "Google Site Reliability Engineer remote",
-        "Microsoft DevOps Engineer remote",
-        "Microsoft Cloud Engineer remote",
-        "Meta Software Engineer DevOps remote",
-        "Adobe DevOps Engineer remote",
-        "Intuit DevOps Engineer remote",
-        "Palo Alto Networks DevOps Engineer remote",
-        "Broadcom DevOps Engineer remote",
-        "Veeva Systems DevOps Engineer remote",
-        "Tech Mahindra DevOps Engineer USA",
-        "Virtusa DevOps Engineer USA",
-        "Nvidia DevOps Engineer remote",
-        "Salesforce DevOps Engineer remote",
-        "Cisco DevOps Engineer remote",
-        "Oracle Cloud Engineer remote",
-        "VMware DevOps Engineer remote",
-        "Qualcomm DevOps Engineer remote",
-    ]
-
-    all_queries = search_queries + company_searches
-
+    all_queries = [
+    "DevOps Cloud SRE Platform Engineer remote USA",
+    "Software Backend Infrastructure Engineer remote USA",
+    "Apple Google Microsoft Meta Adobe Intuit DevOps Cloud Engineer remote",
+]
     for query in all_queries:
         try:
             r = requests.get(

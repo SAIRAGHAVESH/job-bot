@@ -36,10 +36,7 @@ except ImportError:
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = "8621053380:AAHGJhcJPARAnHfekKvHA7fQ2SE2CbpKnuo"
 TELEGRAM_CHAT_ID   = "612269695"
-ADZUNA_APP_ID      = os.getenv("ADZUNA_APP_ID",       "")
 SERPAPI_KEY        = "0dc3cd2139fce65ad7f82ccc12105acc89ff2f09a42518c46d73cfe57ca7b81b"
-ADZUNA_APP_KEY     = os.getenv("ADZUNA_APP_KEY",      "")
-JOOBLE_API_KEY     = os.getenv("JOOBLE_API_KEY",      "")   # free @ jooble.org/api
 SAVE_FOLDER        = "Daily_Jobs"
 SEEN_FILE          = "seen_jobs.json"
 
@@ -309,12 +306,18 @@ TIER_2_COMPANIES = {
 }
 
 ROLE_PRIORITY = {
-    "devops": 1, "sre": 1, "site reliability": 1, "platform engineer": 1,
-    "cloud engineer": 2, "cloud architect": 2, "infrastructure": 2,
-    "kubernetes": 2, "devsecops": 2, "mlops": 2,
-    "software engineer": 3, "backend engineer": 3, "full stack": 3,
-    "security engineer": 4, "data engineer": 4,
-    "systems engineer": 5, "application engineer": 5,
+    # DevOps/Cloud entry-mid first
+    "devops engineer": 1, "cloud engineer": 1,
+    "site reliability engineer": 1, "sre": 1,
+    "platform engineer": 1, "infrastructure engineer": 1,
+    "kubernetes engineer": 1, "devsecops engineer": 1,
+    "mlops engineer": 2, "dataops engineer": 2,
+    "cloud architect": 2, "solutions architect": 2,
+    # SWE roles after
+    "software engineer": 3, "backend engineer": 3,
+    "full stack engineer": 3, "systems engineer": 4,
+    "security engineer": 4, "application engineer": 5,
+    "data engineer": 5,
 }
 
 def get_company_tier(company):
@@ -332,52 +335,104 @@ def get_role_priority(title):
             return priority
     return 6
 
+def get_exp_sort(title):
+    """0-2 yrs = 0 (top), 0-5 yrs = 1 (bottom)"""
+    t = title.lower()
+    if any(x in t for x in ["junior","jr.","jr ","entry","associate"," i-"," i "]):
+        return 0
+    elif any(x in t for x in ["mid","ii ","level 2","l2","intermediate"]):
+        return 1
+    return 2  # general/unspecified — after entry, before pure 0-5
+
 def get_sort_score(job):
     """Lower score = higher priority"""
     tier      = get_company_tier(job["company"])
     role_pri  = get_role_priority(job["title"])
-    has_sal   = 0 if job["salary"] != "—" else 1
-    # Match score — higher is better so invert
+    exp_sort  = get_exp_sort(job["title"])
     ms        = score_job(job["title"], job["company"])
     match_inv = 10 - int(ms.split("/")[0]) if ms and "/" in str(ms) else 5
-    return (role_pri, match_inv, tier, has_sal)
+    has_sal   = 0 if job["salary"] != "—" else 1
+    # Sort: Role → Exp level → Match score → Company tier
+    return (role_pri, exp_sort, match_inv, tier, has_sal)
 
 def is_usa_or_remote(location):
-    """Only keep USA and remote jobs"""
-    loc = location.lower()
-    exclude = ["canada","uk","germany","india","australia","brazil",
-               "france","netherlands","spain","italy","poland","portugal",
-               "ireland","singapore","mexico","colombia","argentina"]
+    """Strictly keep only USA and Remote jobs"""
+    loc = location.lower().strip()
+
+    # Explicit remote — always keep
+    if any(x in loc for x in ["remote", "work from home", "wfh", "anywhere"]):
+        return True
+
+    # Must contain usa indicators
+    usa_indicators = [
+        "usa", "united states", "u.s.", "us ", ", us",
+        "alabama","alaska","arizona","arkansas","california","colorado",
+        "connecticut","delaware","florida","georgia","hawaii","idaho",
+        "illinois","indiana","iowa","kansas","kentucky","louisiana",
+        "maine","maryland","massachusetts","michigan","minnesota",
+        "mississippi","missouri","montana","nebraska","nevada",
+        "new hampshire","new jersey","new mexico","new york",
+        "north carolina","north dakota","ohio","oklahoma","oregon",
+        "pennsylvania","rhode island","south carolina","south dakota",
+        "tennessee","texas","utah","vermont","virginia","washington",
+        "west virginia","wisconsin","wyoming",
+        " al"," ak"," az"," ar"," ca"," co"," ct"," de"," fl"," ga",
+        " hi"," id"," il"," in"," ia"," ks"," ky"," la"," me"," md",
+        " ma"," mi"," mn"," ms"," mo"," mt"," ne"," nv"," nh"," nj",
+        " nm"," ny"," nc"," nd"," oh"," ok"," or"," pa"," ri"," sc",
+        " sd"," tn"," tx"," ut"," vt"," va"," wa"," wv"," wi"," wy",
+    ]
+    if any(x in loc for x in usa_indicators):
+        return True
+
+    # Explicitly exclude non-USA
+    exclude = [
+        "canada","toronto","vancouver","montreal","ontario","british columbia",
+        "uk","london","manchester","edinburgh","birmingham","england","scotland",
+        "germany","berlin","munich","hamburg","frankfurt",
+        "india","bangalore","mumbai","delhi","hyderabad","pune","chennai",
+        "australia","sydney","melbourne","brisbane","perth",
+        "brazil","sao paulo","rio","amsterdam","netherlands","paris","france",
+        "spain","madrid","barcelona","italy","rome","milan",
+        "poland","warsaw","portugal","lisbon","ireland","dublin",
+        "singapore","hong kong","japan","tokyo","china","beijing",
+        "mexico","colombia","argentina","chile","peru",
+        "philippines","pakistan","bangladesh","nigeria","kenya",
+    ]
     if any(c in loc for c in exclude):
         return False
-    return True
+
+    # If location is empty or just "remote" variants — keep
+    if not loc or len(loc) < 3:
+        return True
+
+    return False
 
 def is_entry_mid_level(title, description=""):
-    """Filter for 0-5 years experience roles"""
+    """Strictly filter for 0-5 years / junior-mid level roles only"""
     title_lower = title.lower()
-    desc_lower  = description.lower()
 
-    # Exclude senior/staff/principal/lead/director/vp/head roles
+    # Strictly exclude all senior/lead/staff/principal/architect roles
     exclude = [
-        "staff ", "principal", "director", "vp ", "vice president",
-        "head of", "distinguished", "fellow", "architect",
-        " iv ", " v ", "level 5", "level 6", "l5", "l6",
-        "10+ years", "8+ years", "7+ years", "6+ years",
+        "senior", "sr.", "sr ", " sr-", "staff ", "principal",
+        "director", "vp ", "vice president", "head of",
+        "distinguished", "fellow", "architect", "lead ",
+        "manager", "management", " iv", " v ", "level 5",
+        "level 6", "l5", "l6", "10+ years", "8+ years",
+        "7+ years", "6+ years", "tech lead", "team lead",
     ]
     for word in exclude:
-        if word in title_lower or word in desc_lower:
+        if word in title_lower:
             return False
 
     return True
 
 def get_exp_level(title):
-    """Return experience level label"""
+    """Return experience level label for 0-5 yr roles"""
     title_lower = title.lower()
-    if any(x in title_lower for x in ["senior", "sr.", "sr "]):
-        return "3-5 yrs"
-    elif any(x in title_lower for x in ["junior", "jr.", "jr ", "associate", "entry"]):
+    if any(x in title_lower for x in ["junior", "jr.", "jr ", "entry", "associate", "i ", " i-"]):
         return "0-2 yrs"
-    elif any(x in title_lower for x in ["mid", "ii ", "level 2", "l2"]):
+    elif any(x in title_lower for x in ["mid", "ii ", "level 2", "l2", "intermediate"]):
         return "2-4 yrs"
     else:
         return "0-5 yrs"
@@ -778,7 +833,7 @@ def save_to_excel(jobs):
 
     # Title
     ws.merge_cells("A1:H1")
-    ws["A1"] = f"Job Openings — {today}   ({len(jobs)} roles | Sorted: DevOps/Cloud → SWE → Top Companies)"
+    ws["A1"] = f"Job Openings — {today}   ({len(jobs)} roles found)"
     ws["A1"].font      = Font(name="Arial", bold=True, size=14, color="FFFFFF")
     ws["A1"].fill      = hdr_fill
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
@@ -875,46 +930,30 @@ def save_to_excel(jobs):
 
 # ── TELEGRAM SUMMARY ──────────────────────────────────────────────────────────
 def send_summary(jobs):
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    # Count by source
+    """Send a clean summary to Telegram — Excel file will follow"""
     from collections import Counter
-    by_src = Counter(j["source"] for j in jobs)
-    src_summary = "  ".join(f"{k}: {v}" for k,v in by_src.most_common())
+    today = datetime.now().strftime("%Y-%m-%d")
 
     if not jobs:
         send_telegram(f"📋 <b>Job Scan — {today}</b>\n\nNo new openings found today.")
         return
 
+    # Count DevOps/Cloud matches
+    devops_kw = ["devops","sre","site reliability","platform engineer","cloud engineer",
+                 "infrastructure engineer","kubernetes","devsecops","mlops","dataops"]
+    devops_count = sum(1 for j in jobs if any(k in j["title"].lower() for k in devops_kw))
+
+    # Count by source
+    by_src = Counter(j["source"] for j in jobs)
+    src_summary = "\n".join(f"  • {k}: {v}" for k, v in by_src.most_common())
+
     send_telegram(
-        f"📋 <b>Job Scan — {today}</b>\n"
-        f"✅ <b>{len(jobs)} new openings</b> found!\n"
-        f"📂 File: <b>Jobs_{today}.xlsx</b>\n\n"
-        f"<b>By Source:</b>\n{src_summary}\n"
-        f"{'─'*30}"
+        f"📋 <b>Job Scan Complete — {today}</b>\n\n"
+        f"✅ <b>{len(jobs)}</b> total new openings found\n"
+        f"🎯 <b>{devops_count}</b> DevOps/Cloud roles\n\n"
+        f"<b>By Source:</b>\n{src_summary}\n\n"
+        f"📂 Your Excel file is coming right up!"
     )
-
-    # Sort by source priority (most reliable/important first)
-    source_priority = {
-        "GREENHOUSE": 1, "LEVER": 2, "ASHBY": 3, "WORKDAY": 4,
-        "SMARTRECRUIT": 5, "LINKEDIN": 6, "INDEED": 7,
-        "SERPAPI": 8, "GLASSDOOR": 9, "ZIP_RECRUITER": 10, "GOOGLE": 11,
-        "ADZUNA": 12, "JOOBLE": 13, "REMOTEOK": 14,
-        "WWR": 15, "USAJOBS": 16,
-    }
-    sorted_jobs = sorted(jobs, key=lambda j: source_priority.get(j["source"], 99))
-
-    # Top 30 in order of importance
-    for job in sorted_jobs[:30]:
-        send_telegram(
-            f"💼 <b>{job['title']}</b>\n"
-            f"🏢 {job['company']}  |  📍 {job['location']}\n"
-            f"💰 {job['salary']}  |  [{job['source']}]\n"
-            f"🔗 <a href='{job['url']}'>Apply Now</a>"
-        )
-
-    if len(jobs) > 30:
-        send_telegram(f"➕ <b>{len(jobs)-30} more</b> in <b>Jobs_{today}.xlsx</b>")
 
 # ── SOURCE 12: SERPAPI (ZipRecruiter + Glassdoor + Monster + Google Jobs + Workday companies) ──
 def fetch_serpapi(seen):
@@ -923,13 +962,14 @@ def fetch_serpapi(seen):
         return []
     jobs = []
 
-   
-
+    # ⚡ Only 3 searches per day to preserve SerpAPI free tier (100/month)
+    # 1 broad DevOps/Cloud search + 1 SWE search + 1 top company search
     all_queries = [
-    "DevOps Cloud SRE Platform Engineer remote USA",
-    "Software Backend Infrastructure Engineer remote USA",
-    "Apple Google Microsoft Meta Adobe Intuit DevOps Cloud Engineer remote",
-]
+        "DevOps Cloud SRE Platform Engineer remote USA",
+        "Software Backend Infrastructure Engineer remote USA",
+        "Apple Google Microsoft Meta Adobe Intuit DevOps Cloud Engineer remote",
+    ]
+
     for query in all_queries:
         try:
             r = requests.get(
@@ -940,7 +980,8 @@ def fetch_serpapi(seen):
                     "location": "United States",
                     "hl":       "en",
                     "gl":       "us",
-                    "chips":    "date_posted:today",
+                    "chips":    "date_posted:today,employment_type:FULLTIME",
+                    "ltype":    "1",  # remote jobs only
                     "api_key":  SERPAPI_KEY,
                 },
                 timeout=15
@@ -968,7 +1009,7 @@ def fetch_serpapi(seen):
                             break
 
                 jid = job_id(t, co)
-                if jid not in seen and is_good_job(t, loc):
+                if jid not in seen and is_good_job(t, loc) and is_usa_or_remote(loc):
                     seen.add(jid)
                     jobs.append(make_job(t, co, loc, url, "SERPAPI", salary))
         except Exception as e:
@@ -1045,7 +1086,7 @@ def run():
 if __name__ == "__main__":
     send_telegram(
         "🤖 <b>Full Job Bot is live!</b>\n"
-        "⏰ Runs daily at 8:00 AM\n"
+        "⏰ Runs daily at 7:00 PM Cincinnati (EST)\n"
         "🔍 Sources: LinkedIn · Indeed · ZipRecruiter · Glassdoor · Monster\n"
         "         Adzuna · Jooble · RemoteOK · WeWorkRemotely · USAJobs\n"
         "         Greenhouse · Lever · Ashby · SmartRecruiters · Workday\n"
@@ -1053,7 +1094,7 @@ if __name__ == "__main__":
         "📂 New Excel file daily: <b>Jobs_YYYY-MM-DD.xlsx</b>"
     )
     run()
-    schedule.every().day.at("08:00").do(run)
+    schedule.every().day.at("19:00").do(run)  # 7:00 PM Cincinnati EST
     while True:
         schedule.run_pending()
         time.sleep(60)

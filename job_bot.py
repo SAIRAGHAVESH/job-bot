@@ -43,6 +43,15 @@ JOOBLE_API_KEY     = os.getenv("JOOBLE_API_KEY",      "")   # free @ jooble.org/
 SAVE_FOLDER        = "Daily_Jobs"
 SEEN_FILE          = "seen_jobs.json"
 
+# Phrases indicating 5+ years required
+EXP_EXCLUDE_PHRASES = [
+    "5+ years","6+ years","7+ years","8+ years","9+ years","10+ years",
+    "5 or more years","6 or more years","7 or more years",
+    "minimum 5 years","minimum 6 years","minimum 7 years",
+    "at least 5 years","at least 6 years","at least 7 years",
+    "five or more years","six or more years","seven or more years",
+]
+
 JOB_TITLES = [
     "Software Engineer", "Senior Software Engineer", "Staff Software Engineer",
     "DevOps Engineer", "Senior DevOps Engineer", "Platform Engineer",
@@ -458,13 +467,24 @@ def make_job(title, company, location, url, source, salary="—"):
             "url": url, "source": source, "salary": salary,
             "posted": datetime.now().strftime("%Y-%m-%d")}
 
-def is_good_job(title, location):
-    """Check if job matches our criteria"""
+def is_within_exp(title):
+    """Exclude roles requiring 5+ years in the title"""
+    t = str(title).lower()
+    return not any(x in t for x in [
+        "senior","sr.","sr ","staff ","principal","director",
+        "vp ","vice president","head of","lead ","manager",
+        "tech lead"," iv "," v ","architect","distinguished","fellow"
+    ])
+
+def is_good_job(title, location, company=""):
+    """Check if job matches all criteria"""
     if not is_relevant(title):
         return False
     if not is_usa_or_remote(location):
         return False
     if not is_entry_mid_level(title):
+        return False
+    if not is_within_exp(title):
         return False
     return True
 
@@ -593,7 +613,15 @@ def fetch_jooble(seen):
 def fetch_remoteok(seen):
     jobs = []
     try:
-        r = requests.get("https://remoteok.com/api", headers={"User-Agent": "JobBot/1.0"}, timeout=15)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Referer": "https://remoteok.com/",
+        }
+        r = requests.get("https://remoteok.com/api", headers=headers, timeout=15)
+        if r.status_code != 200:
+            print(f"  [RemoteOK] Status: {r.status_code} — skipping")
+            return []
         for job in r.json()[1:]:  # first item is metadata
             if not is_relevant(job.get("position","")):
                 continue
@@ -929,7 +957,125 @@ def save_to_excel(jobs):
 
     wb.save(filepath)
     print(f"Saved: {filepath}")
-    return filepath
+
+    # ── Generate Apply Today sheet ────────────────────────────────────────────
+    apply_filepath = os.path.join(SAVE_FOLDER, f"Apply_Today_{today}.xlsx")
+    _build_apply_today(jobs, today, apply_filepath)
+
+    return filepath, apply_filepath
+
+# ── APPLY TODAY BUILDER ──────────────────────────────────────────────────────
+def _build_apply_today(jobs, today, filepath):
+    """Filtered sheet: DevOps/Cloud only, 0-2 yrs first, no staffing, USA only"""
+    from openpyxl import Workbook as WB2
+
+    DEVOPS_KW = ["devops","sre","site reliability","platform engineer","cloud engineer",
+                 "infrastructure engineer","kubernetes","devsecops","mlops","dataops",
+                 "reliability engineer"]
+    SENIOR_KW = ["senior","sr.","sr ","staff ","principal","director","vp ",
+                 "head of","lead ","manager","tech lead"," iv "," v ","architect"]
+    EXCL_LOC  = ["canada","toronto","uk ","london","germany","berlin","india",
+                 "bangalore","australia","sydney","brazil","france","paris",
+                 "netherlands","amsterdam","spain","ireland","singapore","mexico","poland"]
+
+    def ok(j):
+        t   = j["title"].lower()
+        loc = j["location"].lower()
+        co  = j["company"].lower()
+        if not any(k in t for k in DEVOPS_KW): return False
+        if any(k in t for k in SENIOR_KW): return False
+        if any(c in loc for c in EXCL_LOC): return False
+        return True
+
+    def exp_s(j):
+        t = j["title"].lower()
+        if any(x in t for x in ["junior","jr.","entry","associate","new grad","i "]): return 0
+        if any(x in t for x in ["mid","ii ","level 2","l2"]): return 1
+        return 2
+
+    filtered = sorted([j for j in jobs if ok(j)],
+                      key=lambda j: (exp_s(j), get_company_tier(j["company"])))[:20]
+
+    wb2  = WB2()
+    ws2  = wb2.active
+    ws2.title = "Apply Today"
+    thin = Side(style="thin", color="CCCCCC")
+    bdr  = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    ws2.merge_cells("A1:F1")
+    ws2["A1"] = f"Apply Today — DevOps/Cloud — {today}  ({len(filtered)} roles)"
+    ws2["A1"].font      = Font(name="Arial", bold=True, size=13, color="FFFFFF")
+    ws2["A1"].fill      = PatternFill("solid", start_color="375623")
+    ws2["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws2.row_dimensions[1].height = 30
+
+    for col, h in enumerate(["Company","Job Title","Location","H-1B","Exp","Apply Link"], 1):
+        c = ws2.cell(row=2, column=col, value=h)
+        c.font      = Font(name="Arial", bold=True, color="FFFFFF", size=11)
+        c.fill      = PatternFill("solid", start_color="548235")
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border    = bdr
+    ws2.row_dimensions[2].height = 20
+
+    H1B_COS = {"databricks","openai","anthropic","stripe","cloudflare","crowdstrike",
+               "snowflake","datadog","elastic","splunk","okta","mongodb","twilio",
+               "zscaler","netskope","hashicorp","airbnb","palantir","coinbase",
+               "google","amazon","microsoft","apple","meta","nvidia","salesforce",
+               "adobe","intuit","cisco","palo alto","doordash","lyft","atlassian",
+               "hubspot","servicenow","workday","zoom","robinhood","brex","plaid",
+               "chime","affirm","rippling","carta","freshworks","okta","gitlab"}
+
+    entry_f = PatternFill("solid", start_color="C6EFCE")
+    entry_a = PatternFill("solid", start_color="E2EFDA")
+    mid_f   = PatternFill("solid", start_color="EBF3FB")
+    mid_a   = PatternFill("solid", start_color="FFFFFF")
+    ec = mc  = 0
+
+    for i, job in enumerate(filtered):
+        r   = i + 3
+        exp = get_exp_level(job["title"])
+        h1b = "Yes" if any(h in job["company"].lower() for h in H1B_COS) else "—"
+        loc = job["location"]
+        url = job["url"]
+
+        fill = (entry_f if ec % 2 == 0 else entry_a) if exp == "0-2 yrs" else (mid_f if mc % 2 == 0 else mid_a)
+        if exp == "0-2 yrs": ec += 1
+        else: mc += 1
+
+        for col, val in enumerate([job["company"], job["title"], loc, h1b, exp, url], 1):
+            c           = ws2.cell(row=r, column=col, value=val)
+            c.fill      = fill
+            c.border    = bdr
+            c.alignment = Alignment(vertical="center",
+                                    horizontal="center" if col in (4,5) else "left")
+            if col == 4:
+                c.font = Font(name="Arial", size=11, bold=True,
+                              color="375623" if val == "Yes" else "AAAAAA")
+            elif col == 5:
+                c.font = Font(name="Arial", size=10, bold=True,
+                              color="375623" if "0-2" in str(val) else "1F4E79")
+            elif col == 6:
+                c.font = Font(name="Arial", size=10, color="0070C0", underline="single")
+            elif col == 1:
+                c.font = Font(name="Arial", size=10, bold=True)
+            else:
+                c.font = Font(name="Arial", size=10)
+        ws2.row_dimensions[r].height = 20
+
+    # Legend
+    lr = len(filtered) + 4
+    ws2.merge_cells(f"A{lr}:F{lr}")
+    ws2[f"A{lr}"] = "Green = 0-2 yrs (apply first!)     Blue = 0-5 yrs   |   No staffing firms   |   USA/Remote only   |   Max 5 yrs exp"
+    ws2[f"A{lr}"].font      = Font(name="Arial", bold=True, size=9)
+    ws2[f"A{lr}"].alignment = Alignment(horizontal="center")
+
+    for col, w in zip(["A","B","C","D","E","F"], [22, 42, 26, 8, 10, 55]):
+        ws2.column_dimensions[col].width = w
+    ws2.freeze_panes = "A3"
+    ws2.auto_filter.ref = f"A2:F{len(filtered)+2}"
+
+    wb2.save(filepath)
+    print(f"  Apply Today saved: {filepath} ({len(filtered)} roles)")
 
 # ── TELEGRAM SUMMARY ──────────────────────────────────────────────────────────
 def send_summary(jobs):
@@ -1012,7 +1158,7 @@ def fetch_serpapi(seen):
                             break
 
                 jid = job_id(t, co)
-                if jid not in seen and is_good_job(t, loc) and is_usa_or_remote(loc):
+                if jid not in seen and is_good_job(t, loc, co) and is_usa_or_remote(loc):
                     seen.add(jid)
                     jobs.append(make_job(t, co, loc, url, "SERPAPI", salary))
         except Exception as e:
@@ -1081,9 +1227,10 @@ def run():
     all_jobs = unique_jobs
 
     print(f"\nTotal new jobs found: {len(all_jobs)}")
-    filepath = save_to_excel(all_jobs)
+    filepath, apply_filepath = save_to_excel(all_jobs)
     send_summary(all_jobs)
     send_file(filepath)
+    send_file(apply_filepath)
 
 # ── SCHEDULE ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

@@ -518,7 +518,7 @@ def fetch_job_boards(seen):
         print(f"  [JobBoards] {title}")
         try:
             df = scrape_jobs(
-                site_name=["linkedin","indeed","glassdoor","zip_recruiter","google"],
+                site_name=["linkedin","indeed","google"],
                 search_term=title,
                 location="United States",
                 results_wanted=25,

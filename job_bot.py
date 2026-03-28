@@ -37,6 +37,8 @@ except ImportError:
 TELEGRAM_BOT_TOKEN = "8621053380:AAHGJhcJPARAnHfekKvHA7fQ2SE2CbpKnuo"
 TELEGRAM_CHAT_ID   = "612269695"
 SERPAPI_KEY        = "0dc3cd2139fce65ad7f82ccc12105acc89ff2f09a42518c46d73cfe57ca7b81b"
+ADZUNA_APP_KEY     = os.getenv("ADZUNA_APP_KEY",      "")
+JOOBLE_API_KEY     = os.getenv("JOOBLE_API_KEY",      "")   # free @ jooble.org/api
 SAVE_FOLDER        = "Daily_Jobs"
 SEEN_FILE          = "seen_jobs.json"
 

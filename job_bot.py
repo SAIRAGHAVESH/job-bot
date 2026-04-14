@@ -36,10 +36,10 @@ except ImportError:
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = "8621053380:AAHGJhcJPARAnHfekKvHA7fQ2SE2CbpKnuo"
 TELEGRAM_CHAT_ID   = "612269695"
-SERPAPI_KEY        = "0dc3cd2139fce65ad7f82ccc12105acc89ff2f09a42518c46d73cfe57ca7b81b"
 ADZUNA_APP_ID      = os.getenv("ADZUNA_APP_ID",  "")
-ADZUNA_APP_KEY     = os.getenv("ADZUNA_APP_KEY",      "")
-JOOBLE_API_KEY     = os.getenv("JOOBLE_API_KEY",      "")   # free @ jooble.org/api
+ADZUNA_APP_KEY     = os.getenv("ADZUNA_APP_KEY", "")
+JOOBLE_API_KEY     = os.getenv("JOOBLE_API_KEY", "")
+SERPAPI_KEY        = "0dc3cd2139fce65ad7f82ccc12105acc89ff2f09a42518c46d73cfe57ca7b81b"
 SAVE_FOLDER        = "Daily_Jobs"
 SEEN_FILE          = "seen_jobs.json"
 
@@ -420,34 +420,83 @@ def is_usa_or_remote(location):
 
     return False
 
-def is_entry_mid_level(title, description=""):
-    """Strictly filter for 0-5 years / junior-mid level roles only"""
-    title_lower = title.lower()
+def extract_exp_from_jd(description):
+    """Scan JD text — return minimum years of experience required. 0 = not specified."""
+    import re
+    if not description:
+        return 0
 
-    # Strictly exclude all senior/lead/staff/principal/architect roles
-    exclude = [
+    d = description.lower()
+
+    patterns = [
+        r'(\d+)\+\s*years?\s+of\s+(?:experience|exp)',
+        r'(\d+)\+\s*years?\s+(?:experience|exp)',
+        r'minimum\s+(?:of\s+)?(\d+)\s+years?',
+        r'at\s+least\s+(\d+)\s+years?',
+        r'(\d+)\s+or\s+more\s+years?',
+        r'(\d+)\s*[-–]\s*\d+\s+years?\s+of\s+(?:experience|exp)',
+        r'(\d+)\s+years?\s+of\s+(?:relevant\s+)?(?:professional\s+)?(?:work\s+)?experience',
+        r'(\d+)\s+years?\s+(?:hands.on|professional|working|industry)',
+        r'(\d+)\s+years?\s+(?:in\s+)?(?:devops|cloud|kubernetes|aws|azure)',
+        r'requires?\s+(\d+)\+?\s+years?',
+        r'(\d+)\+\s*yrs?\s+(?:of\s+)?(?:experience|exp)',
+    ]
+
+    found_years = []
+    for pattern in patterns:
+        matches = re.findall(pattern, d)
+        for m in matches:
+            try:
+                yr = int(m)
+                if 1 <= yr <= 20:  # sanity check
+                    found_years.append(yr)
+            except:
+                pass
+
+    if not found_years:
+        return 0
+
+    return min(found_years)
+
+def is_entry_mid_level(title, description=""):
+    """Strictly max 4 years — checked from both title keywords and JD text"""
+    t = title.lower()
+
+    # Exclude senior/lead/staff titles
+    title_exclude = [
         "senior", "sr.", "sr ", " sr-", "staff ", "principal",
         "director", "vp ", "vice president", "head of",
         "distinguished", "fellow", "architect", "lead ",
         "manager", "management", " iv", " v ", "level 5",
-        "level 6", "l5", "l6", "10+ years", "8+ years",
-        "7+ years", "6+ years", "tech lead", "team lead",
+        "level 6", "l5", "l6", "tech lead", "team lead",
+        "expert ", "specialist ", "consultant",
     ]
-    for word in exclude:
-        if word in title_lower:
+    for word in title_exclude:
+        if word in t:
+            return False
+
+    # Scan JD for experience requirement — reject if > 4 years
+    if description:
+        exp_required = extract_exp_from_jd(description)
+        if exp_required > 4:
             return False
 
     return True
 
-def get_exp_level(title):
-    """Return experience level label for 0-5 yr roles"""
+def get_exp_level(title, description=""):
+    """Return experience level label — max 4 yrs"""
     title_lower = title.lower()
-    if any(x in title_lower for x in ["junior", "jr.", "jr ", "entry", "associate", "i ", " i-"]):
+    # Try to get from JD first
+    if description:
+        exp = extract_exp_from_jd(description)
+        if exp > 0:
+            return f"0-{exp} yrs"
+    if any(x in title_lower for x in ["junior", "jr.", "jr ", "entry", "associate", "i ", " i-", "new grad"]):
         return "0-2 yrs"
     elif any(x in title_lower for x in ["mid", "ii ", "level 2", "l2", "intermediate"]):
         return "2-4 yrs"
     else:
-        return "0-5 yrs"
+        return "0-4 yrs"
 
 def load_seen():
     if os.path.exists(SEEN_FILE):
@@ -476,15 +525,13 @@ def is_within_exp(title):
         "tech lead"," iv "," v ","architect","distinguished","fellow"
     ])
 
-def is_good_job(title, location, company=""):
-    """Check if job matches all criteria"""
+def is_good_job(title, location, company="", description=""):
+    """Check if job matches all criteria — strict Cloud/DevOps, max 4 yrs"""
     if not is_relevant(title):
         return False
     if not is_usa_or_remote(location):
         return False
-    if not is_entry_mid_level(title):
-        return False
-    if not is_within_exp(title):
+    if not is_entry_mid_level(title, description):
         return False
     return True
 
@@ -500,13 +547,56 @@ def send_telegram(msg):
     except Exception as e:
         print(f"  Telegram error: {e}")
 
+# Strict Cloud/DevOps keywords — ONLY these roles
+# ── STRICT Cloud/DevOps keywords — must match at least one ──────────────────
+CLOUD_DEVOPS_KEYWORDS = [
+    "devops engineer", "devops",
+    "site reliability engineer", "site reliability", "sre",
+    "platform engineer", "platform engineering",
+    "cloud engineer", "cloud infrastructure engineer",
+    "infrastructure engineer", "infra engineer",
+    "kubernetes engineer", "k8s engineer",
+    "devsecops", "dev sec ops",
+    "cloud operations", "cloud ops",
+    "reliability engineer",
+    "infrastructure automation",
+    "cloud architect",
+    "mlops engineer", "mlops",
+]
+
+# Exclude anything that is NOT a cloud/devops role
+NON_DEVOPS_EXCLUDE = [
+    "data scientist", "data analyst", "data engineer",
+    "frontend", "front-end", "front end",
+    "ios ", "android", "mobile",
+    "ui/ux", "ux designer", "ui designer",
+    "product manager", "program manager",
+    "sales engineer", "solutions engineer",
+    "customer success", "customer support",
+    "technical writer", "technical account",
+    "business analyst", "business development",
+    "qa engineer", "test engineer", "quality engineer",
+    "embedded", "hardware", "firmware", "mechanical",
+    "full stack", "fullstack", "backend engineer", "backend developer",
+    "machine learning engineer", "ai engineer",
+    "software engineer", "software developer", "swe",
+    "network engineer", "network administrator",
+    "database administrator", "dba",
+    "security analyst", "cybersecurity analyst",
+    "systems administrator", "sysadmin",
+    "it support", "it specialist", "help desk",
+]
+
 def is_relevant(title):
-    keywords = [
-        "engineer","sre","devops","platform","cloud","infrastructure",
-        "backend","fullstack","full stack","security","mlops","dataops",
-        "reliability","kubernetes","architect","systems"
-    ]
-    return any(k in title.lower() for k in keywords)
+    """Strictly Cloud/DevOps roles only"""
+    t = title.lower()
+    # Must match at least one Cloud/DevOps keyword
+    if not any(k in t for k in CLOUD_DEVOPS_KEYWORDS):
+        return False
+    # Must NOT be a non-devops role
+    if any(k in t for k in NON_DEVOPS_EXCLUDE):
+        return False
+    return True
 
 # ── SOURCE 1: JOB BOARDS (JobSpy) ────────────────────────────────────────────
 def fetch_job_boards(seen):
@@ -536,13 +626,17 @@ def fetch_job_boards(seen):
     if not frames:
         return []
 
+    frames = [f.dropna(axis=1, how="all") for f in frames]
     for _, row in pd.concat(frames, ignore_index=True).iterrows():
-        jid = job_id(str(row.get("title","")), str(row.get("company","")))
-        if jid not in seen:
+        titl = str(row.get("title",""))
+        co   = str(row.get("company",""))
+        locn = str(row.get("location","Remote"))
+        desc = str(row.get("description",""))
+        jid  = job_id(titl, co)
+        if jid not in seen and is_good_job(titl, locn, co, desc):
             seen.add(jid)
             jobs.append(make_job(
-                str(row.get("title","")), str(row.get("company","")),
-                str(row.get("location","Remote")),
+                titl, co, locn,
                 str(row.get("job_url", row.get("job_link",""))),
                 str(row.get("site","")).upper(),
                 str(row.get("min_amount","") or "—"),
@@ -712,10 +806,26 @@ def fetch_greenhouse(seen):
                 title = job.get("title","")
                 if not is_relevant(title):
                     continue
+                # Get description from content if available
+                desc = ""
+                content_obj = job.get("content","")
+                if content_obj:
+                    from html.parser import HTMLParser
+                    class _P(HTMLParser):
+                        def __init__(self):
+                            super().__init__()
+                            self.text = []
+                        def handle_data(self, data):
+                            self.text.append(data)
+                    p = _P()
+                    p.feed(str(content_obj))
+                    desc = " ".join(p.text)
+                if not is_entry_mid_level(title, desc):
+                    continue
                 loc = job.get("location",{}).get("name","USA")
                 url = job.get("absolute_url","")
                 jid = job_id(title, slug)
-                if jid not in seen:
+                if jid not in seen and is_usa_or_remote(loc):
                     seen.add(jid)
                     jobs.append(make_job(title, slug.title(), loc, url, "GREENHOUSE"))
         except Exception as e:
@@ -739,10 +849,13 @@ def fetch_lever(seen):
                 title = job.get("text","")
                 if not is_relevant(title):
                     continue
+                desc = job.get("descriptionPlain","") or job.get("description","")
+                if not is_entry_mid_level(title, str(desc)):
+                    continue
                 loc = job.get("categories",{}).get("location","USA")
                 url = job.get("hostedUrl","")
                 jid = job_id(title, slug)
-                if jid not in seen:
+                if jid not in seen and is_usa_or_remote(loc):
                     seen.add(jid)
                     jobs.append(make_job(title, slug.title(), loc, url, "LEVER"))
         except Exception as e:
@@ -1202,8 +1315,7 @@ def run():
     print("\n[9/11] Ashby ATS (AI/startup companies)...")
     all_jobs += fetch_ashby(seen)
 
-    print("\n[10/11] SmartRecruiters...")
-    all_jobs += fetch_smartrecruiters(seen)
+    print("\n[10/11] SmartRecruiters... skipped (blocks cloud IPs)")
 
     print("\n[11/11] Workday (Apple/Google/Microsoft/Meta + 30 more)...")
     all_jobs += fetch_workday(seen)

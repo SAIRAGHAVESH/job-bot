@@ -105,6 +105,26 @@ GREENHOUSE_COMPANIES = [
     "epam","thoughtworks","slalom","publicissapient",
     # Added from referrals + screenshots
     "adobe","intuit","veeva","paloaltonetworks","broadcom",
+    # New batch 1 — Product companies
+    "confluent","samsara","rubrik","netskope","lacework","verkada",
+    "aurora","zipline","anduril","rivian","tempus","duolingo",
+    "coursera","discord","reddit","databricks","openai","anthropic",
+    "scale","brex","plaid","flexport","rippling","chime","gusto",
+    "carta","airtable","notion","figma","roblox","coinbase","robinhood",
+    "instacart","doordash","uber","lyft","block","sofi","affirm",
+    "marqeta","wayfair","chewy","pagerduty","blackline","remitly",
+    "applovin","moloco","alteryx","cloudera","fico","thoughtworks",
+    "flatiron-health","wolters-kluwer","grainger","sei-investments",
+    "iqvia","detroit-diesel","national-instruments",
+    # Health Tech
+    "epic-systems","cerner","ge-healthcare","philips","allscripts",
+    "medtronic","change-healthcare","hims","resmed","guardant",
+    "health-care-service","health-carousel",
+    # IT Services
+    "zs-associates","slalom","epam","capgemini","cognizant",
+    "ltimindtree","infosys","tcs","wipro","hcl",
+    "system-soft","compunnel","atos","yash-technologies",
+    "saviynt","tenable","citiustech",
     "techmahindra","virtusa","servicenow","workday","hubspot",
     "okta","mongodb","twilio","zendesk","freshworks",
     "figma","notion","asana","linear","canva",
@@ -146,6 +166,17 @@ LEVER_COMPANIES = [
     "palo-alto-networks","veeva-systems","intuit","adobe",
     "broadcom","tech-mahindra","virtusa","vmware",
     "qualcomm","amd","intel","cisco","juniper",
+    # New batch
+    "thoughtworks","saviynt","tenable","pagerduty","blackline",
+    "blackbaud","remitly","applovin","moloco","flatiron-health",
+    "wolters-kluwer","grainger","paccar","macys","fireeye",
+    "iqvia","north-highland","codescience","alteryx","cloudera",
+    "fico","confluent","samsara","rubrik","lacework","verkada",
+    "anduril","rivian","duolingo","coursera","discord","reddit",
+    "scale-ai","brex","flexport","rippling","chime","gusto",
+    "carta","airtable","notion","figma","roblox","sofi","affirm",
+    "marqeta","wayfair","chewy","zs-associates","slalom",
+    "epam-systems","ltimindtree","moloco",
 ]
 
 # Ashby: jobs.ashbyhq.com/{slug}
@@ -550,10 +581,10 @@ def send_telegram(msg):
 # Strict Cloud/DevOps keywords — ONLY these roles
 # ── STRICT Cloud/DevOps keywords — must match at least one ──────────────────
 CLOUD_DEVOPS_KEYWORDS = [
-    "devops engineer", "devops",
-    "site reliability engineer", "site reliability", "sre",
+    "devops", "dev ops",
+    "site reliability", "sre",
     "platform engineer", "platform engineering",
-    "cloud engineer", "cloud infrastructure engineer",
+    "cloud engineer", "cloud infrastructure",
     "infrastructure engineer", "infra engineer",
     "kubernetes engineer", "k8s engineer",
     "devsecops", "dev sec ops",
@@ -561,7 +592,12 @@ CLOUD_DEVOPS_KEYWORDS = [
     "reliability engineer",
     "infrastructure automation",
     "cloud architect",
-    "mlops engineer", "mlops",
+    "mlops", "dataops",
+    "release engineer", "build engineer",
+    "deployment engineer", "automation engineer",
+    "production engineer", "systems reliability",
+    "aws engineer", "azure engineer", "gcp engineer",
+    "cicd engineer", "cloud devops",
 ]
 
 # Exclude anything that is NOT a cloud/devops role
@@ -769,9 +805,11 @@ def fetch_usajobs(seen):
         for title in ["Software Engineer","DevOps Engineer","Cloud Engineer"]:
             r = requests.get(
                 "https://data.usajobs.gov/api/search",
-                params={"Keyword": title, "ResultsPerPage": 25, "RemoteIndicator": "True"},
-                headers={"Host": "data.usajobs.gov", "User-Agent": "JobBot/1.0",
-                         "Authorization-Key": ""},  # works without key for basic search
+                params={"Keyword": title, "ResultsPerPage": 25,
+                        "RemoteIndicator": "True", "PositionOfferingTypeCode": "15317"},
+                headers={"Host": "data.usajobs.gov",
+                         "User-Agent": "sivanikodali26@gmail.com",
+                         "Authorization-Key": ""},
                 timeout=10
             )
             for item in r.json().get("SearchResult",{}).get("SearchResultItems",[]):
@@ -837,13 +875,16 @@ def fetch_greenhouse(seen):
 # ── SOURCE 8: LEVER ATS ───────────────────────────────────────────────────────
 def fetch_lever(seen):
     jobs = []
+    errors = 0
     for slug in LEVER_COMPANIES:
         try:
             r = requests.get(
                 f"https://api.lever.co/v0/postings/{slug}?mode=json&commitment=Full-time",
+                headers=HEADERS,
                 timeout=10
             )
             if r.status_code != 200:
+                errors += 1
                 continue
             for job in r.json():
                 title = job.get("text","")
@@ -861,7 +902,7 @@ def fetch_lever(seen):
         except Exception as e:
             pass
         time.sleep(0.3)
-    print(f"  [Lever] {len(jobs)} jobs from {len(LEVER_COMPANIES)} companies")
+    print(f"  [Lever] {len(jobs)} jobs from {len(LEVER_COMPANIES)} companies (errors: {errors})")
     return jobs
 
 # ── SOURCE 9: ASHBY ATS ───────────────────────────────────────────────────────
@@ -872,11 +913,14 @@ def fetch_ashby(seen):
             r = requests.post(
                 "https://api.ashbyhq.com/posting-api/job-board",
                 json={"organizationHostedJobsPageName": slug},
+                headers={**HEADERS, "Content-Type": "application/json"},
                 timeout=10
             )
             if r.status_code != 200:
                 continue
-            for job in r.json().get("jobs", []):
+            data = r.json()
+            job_list = data.get("jobs", data.get("jobPostings", []))
+            for job in job_list:
                 title = job.get("title","")
                 if not is_relevant(title):
                     continue
@@ -1227,9 +1271,9 @@ def fetch_serpapi(seen):
     # ⚡ Only 3 searches per day to preserve SerpAPI free tier (100/month)
     # 1 broad DevOps/Cloud search + 1 SWE search + 1 top company search
     all_queries = [
-        "DevOps Cloud SRE Platform Engineer remote USA",
-        "Software Backend Infrastructure Engineer remote USA",
-        "Apple Google Microsoft Meta Adobe Intuit DevOps Cloud Engineer remote",
+        "DevOps Engineer Cloud Engineer SRE remote USA 0-4 years",
+        "Platform Engineer Infrastructure Engineer Kubernetes remote USA entry mid level",
+        "Apple Google Microsoft Meta Cloudflare Datadog DevOps Cloud Engineer remote USA",
     ]
 
     for query in all_queries:

@@ -245,18 +245,45 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleW
 
 def send_file(filepath):
     """Send Excel file directly to Telegram chat"""
-    try:
-        with open(filepath, "rb") as f:
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument",
-                data={"chat_id": TELEGRAM_CHAT_ID,
-                      "caption": f"📂 Daily Jobs Sheet — {datetime.now().strftime('%Y-%m-%d')}"},
-                files={"document": f},
-                timeout=60
-            )
-        print(f"File sent to Telegram: {filepath}")
-    except Exception as e:
-        print(f"  File send error: {e}")
+    if not os.path.exists(filepath):
+        print(f"  File not found: {filepath}")
+        send_telegram(f"⚠️ File not found: {filepath}")
+        return
+
+    filesize = os.path.getsize(filepath)
+    print(f"  Sending file: {filepath} ({filesize} bytes)")
+
+    # Telegram has 50MB limit for bots
+    if filesize > 50 * 1024 * 1024:
+        send_telegram(f"⚠️ File too large to send ({filesize // 1024 // 1024}MB). Check Railway for the file.")
+        return
+
+    for attempt in range(3):  # retry up to 3 times
+        try:
+            fname = os.path.basename(filepath)
+            with open(filepath, "rb") as f:
+                resp = requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument",
+                    data={
+                        "chat_id": TELEGRAM_CHAT_ID,
+                        "caption": f"📂 {fname} — {datetime.now().strftime('%Y-%m-%d %H:%M')} EST",
+                        "parse_mode": "HTML",
+                    },
+                    files={"document": (fname, f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                    timeout=120
+                )
+            result = resp.json()
+            if result.get("ok"):
+                print(f"  ✅ File sent: {fname}")
+                return
+            else:
+                print(f"  ❌ Telegram error (attempt {attempt+1}): {result}")
+                time.sleep(3)
+        except Exception as e:
+            print(f"  File send error (attempt {attempt+1}): {e}")
+            time.sleep(3)
+
+    send_telegram(f"⚠️ Failed to send Excel file after 3 attempts. Check Railway logs.")
 
 # ── SAI SIVANI'S RESUME PROFILE ──────────────────────────────────────────────
 RESUME_SKILLS = {
